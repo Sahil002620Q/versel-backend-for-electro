@@ -1,0 +1,2 @@
+# No external dependencies (Standard Library only)
+# This file is present so deployment platforms detect Python app.
