@@ -108,9 +108,100 @@ const Navbar = ({ setPage }) => {
     );
 };
 
-const ListingCard = ({ listing, onRequest }) => {
+// --- Product Details Modal ---
+const ProductDetailsModal = ({ listing, onClose, onRequest }) => {
+    if (!listing) return null;
+
     return (
-        <div className="btn-animated bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl group">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col md:flex-row overflow-hidden animate-[slideUp_0.3s_ease-out]">
+                {/* Image Section */}
+                <div className="w-full md:w-1/2 bg-gray-100 flex items-center justify-center p-4 relative min-h-[300px]">
+                    <button onClick={onClose} className="absolute top-4 left-4 bg-white/80 p-2 rounded-full md:hidden text-gray-800 hover:bg-white shadow z-10">
+                        ✕ Close
+                    </button>
+                    {listing.photos && listing.photos.length > 0 ? (
+                        <img src={listing.photos[0]} alt={listing.title} className="max-w-full max-h-[500px] object-contain shadow-lg rounded-lg" />
+                    ) : (
+                        <div className="text-gray-400 flex flex-col items-center">
+                            <span className="text-6xl mb-2">📷</span>
+                            <span className="font-medium">No Image Available</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Details Section */}
+                <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary mb-2">
+                                {listing.category}
+                            </span>
+                            <h2 className="text-2xl font-bold text-gray-900 leading-tight">{listing.title}</h2>
+                            <p className="text-sm text-gray-500 mt-1">{listing.brand} • {listing.model}</p>
+                        </div>
+                        <button onClick={onClose} className="hidden md:block text-gray-400 hover:text-gray-600 text-2xl leading-none">
+                            &times;
+                        </button>
+                    </div>
+
+                    <div className="mb-6">
+                        <span className="text-3xl font-bold text-slate-800">${listing.price}</span>
+                    </div>
+
+                    <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-2 uppercase tracking-wide">Condition</h3>
+                            <div className="flex items-center space-x-2">
+                                <span className={`text-lg font-bold ${listing.condition === 'broken' ? 'text-red-500' : 'text-green-600'}`}>
+                                    {listing.condition.replace('_', ' ').toUpperCase()}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-900 mb-2 uppercase tracking-wide">Description</h3>
+                            <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">{listing.description}</p>
+                        </div>
+
+                        {listing.working_parts && (
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-900 mb-2 uppercase tracking-wide">Working Parts</h3>
+                                <p className="text-green-700 bg-green-50 p-3 rounded-lg border border-green-100 text-sm">
+                                    ✅ {listing.working_parts}
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="flex items-center text-sm text-gray-500 pt-2 border-t border-gray-100">
+                            <span className="mr-2">📍 Location:</span>
+                            <span className="font-medium text-gray-800">{listing.location}</span>
+                        </div>
+                    </div>
+
+                    <div className="pt-6 mt-4 border-t border-gray-100">
+                        {listing.status === 'active' ? (
+                            <button
+                                onClick={() => onRequest(listing.id)}
+                                className="w-full btn-animated bg-primary text-white py-4 rounded-xl font-bold text-lg hover:bg-primary-dark shadow-xl shadow-primary/20"
+                            >
+                                Request to Buy
+                            </button>
+                        ) : (
+                            <button disabled className="w-full bg-slate-200 text-slate-400 py-4 rounded-xl font-bold text-lg cursor-not-allowed">
+                                Not Available
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ListingCard = ({ listing, onView }) => {
+    return (
+        <div className="btn-animated bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl group flex flex-col h-full cursor-pointer" onClick={() => onView(listing)}>
             <div className="h-48 bg-slate-100 flex items-center justify-center relative overflow-hidden">
                 {listing.photos && listing.photos.length > 0 ? (
                     <img src={listing.photos[0]} alt={listing.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" />
@@ -126,38 +217,33 @@ const ListingCard = ({ listing, onRequest }) => {
                     </span>
                 </div>
             </div>
-            <div className="p-5">
+            <div className="p-5 flex flex-col flex-1">
                 <div className="flex justify-between items-start mb-2">
-                    <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
+                    <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary truncate max-w-[50%]">
                         {listing.category}
                     </span>
                     <span className="text-xl font-bold text-slate-900">${listing.price}</span>
                 </div>
 
-                <h3 className="text-lg font-bold text-slate-800 mb-1 group-hover:text-primary transition-colors">{listing.title}</h3>
+                <h3 className="text-lg font-bold text-slate-800 mb-1 group-hover:text-primary transition-colors line-clamp-2">{listing.title}</h3>
                 <p className="text-sm text-slate-500 mb-4">{listing.brand} • {listing.model}</p>
 
-                <div className="space-y-2 mb-4">
+                <div className="space-y-2 mb-4 flex-1">
                     <div className="flex items-center text-sm">
-                        <span className="text-slate-400 w-20">Condition:</span>
+                        <span className="text-slate-400 w-20 flex-shrink-0">Condition:</span>
                         <span className={`font-medium ${listing.condition === 'broken' ? 'text-red-500' : 'text-green-500'}`}>
                             {listing.condition.replace('_', ' ').toUpperCase()}
                         </span>
                     </div>
                     <div className="flex items-center text-sm">
-                        <span className="text-slate-400 w-20">Location:</span>
+                        <span className="text-slate-400 w-20 flex-shrink-0">Location:</span>
                         <span className="text-slate-600 truncate">{listing.location}</span>
                     </div>
                 </div>
 
-                {listing.status === 'active' && (
-                    <button
-                        onClick={() => onRequest(listing.id)}
-                        className="w-full btn-animated py-2.5 rounded-xl border-2 border-primary text-primary font-bold hover:bg-primary hover:text-white transition-all"
-                    >
-                        Request to Buy
-                    </button>
-                )}
+                <div className="text-center text-sm font-semibold text-primary mt-auto pt-2 border-t border-slate-50">
+                    View Details →
+                </div>
             </div>
         </div>
     );
@@ -168,6 +254,8 @@ const ListingCard = ({ listing, onRequest }) => {
 const HomePage = ({ setPage }) => {
     const [listings, setListings] = useState([]);
     const [filters, setFilters] = useState({ category: '', condition: '' });
+    const [showFilters, setShowFilters] = useState(false);
+    const [selectedListing, setSelectedListing] = useState(null);
 
     useEffect(() => {
         fetchListings();
@@ -190,6 +278,7 @@ const HomePage = ({ setPage }) => {
         try {
             await api.post('/requests/', { listing_id: listingId });
             alert("Buy request sent successfully! Check your dashboard.");
+            setSelectedListing(null); // Close modal on success
         } catch (err) {
             alert(err.response?.data?.detail || "Failed to send request. You might need to login.");
             if (err.response?.status === 401) setPage('login');
@@ -198,54 +287,89 @@ const HomePage = ({ setPage }) => {
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex gap-8">
-                {/* Sidebar Filters */}
-                <div className="w-64 flex-shrink-0">
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                        <h3 className="font-semibold text-gray-900 mb-4">Filters</h3>
+            {/* Mobile Filter Toggle */}
+            <div className="md:hidden mb-4">
+                <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="w-full flex items-center justify-between text-left bg-white p-3 rounded-lg shadow-sm border border-gray-200 font-semibold text-gray-700 active:scale-95 transition-transform"
+                >
+                    <span>🔍 Filters & Sort</span>
+                    <span className={`transform transition-transform ${showFilters ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+            </div>
 
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <div className="flex flex-col md:flex-row gap-8">
+                {/* Sidebar Filters */}
+                <div className={`${showFilters ? 'block' : 'hidden'} md:block w-full md:w-64 flex-shrink-0 transition-all duration-300`}>
+                    <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 sticky top-24">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-gray-900">Filters</h3>
+                            <button onClick={() => setFilters({ category: '', condition: '' })} className="text-xs text-primary font-medium hover:underline">Reset</button>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                             <input
                                 type="text"
-                                className="w-full border-gray-300 rounded-md shadow-sm p-2 border"
+                                className="w-full border-gray-300 rounded-lg shadow-sm p-2.5 border focus:ring-primary focus:border-primary transition-colors"
                                 placeholder="e.g. Phone, Laptop"
                                 value={filters.category}
                                 onChange={e => setFilters({ ...filters, category: e.target.value })}
                             />
                         </div>
 
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>
-                            <select
-                                className="w-full border-gray-300 rounded-md shadow-sm p-2 border"
-                                value={filters.condition}
-                                onChange={e => setFilters({ ...filters, condition: e.target.value })}
-                            >
-                                <option value="">All</option>
-                                <option value="broken">Broken</option>
-                                <option value="for_parts">For Parts</option>
-                                <option value="used">Used</option>
-                                <option value="new">New</option>
-                            </select>
+                        <div className="mb-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Condition</label>
+                            <div className="space-y-2">
+                                {['', 'broken', 'for_parts', 'used', 'new'].map(cond => (
+                                    <label key={cond} className="flex items-center space-x-3 cursor-pointer group">
+                                        <input
+                                            type="radio"
+                                            name="condition"
+                                            value={cond}
+                                            checked={filters.condition === cond}
+                                            onChange={e => setFilters({ ...filters, condition: e.target.value })}
+                                            className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
+                                        />
+                                        <span className="text-sm text-gray-600 group-hover:text-primary transition-colors">
+                                            {cond === '' ? 'All Conditions' : cond.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Listing Grid */}
                 <div className="flex-1">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {listings.map(listing => (
-                            <ListingCard key={listing.id} listing={listing} onRequest={handleBuyRequest} />
+                            <ListingCard
+                                key={listing.id}
+                                listing={listing}
+                                onView={setSelectedListing}
+                            />
                         ))}
                     </div>
                     {listings.length === 0 && (
-                        <div className="text-center py-12 text-gray-500">
-                            No listings found matching your criteria.
+                        <div className="text-center py-20 px-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                            <span className="text-4xl block mb-2">🔍</span>
+                            <p className="text-gray-500 font-medium">No listings found matching your criteria.</p>
+                            <button onClick={() => setFilters({ category: '', condition: '' })} className="text-primary font-bold mt-2 hover:underline">Clear Filters</button>
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Product Details Modal */}
+            {selectedListing && (
+                <ProductDetailsModal
+                    listing={selectedListing}
+                    onClose={() => setSelectedListing(null)}
+                    onRequest={handleBuyRequest}
+                />
+            )}
         </div>
     );
 };
