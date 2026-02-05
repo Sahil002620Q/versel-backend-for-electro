@@ -335,6 +335,7 @@ const HomePage = ({ setPage }) => {
             alert("Buy request sent successfully! Check your dashboard.");
             setSelectedListing(null);
         } catch (err) {
+            // Show the backend error message (e.g. "You already have a pending request...")
             alert(err.response?.data?.detail || "Failed to send request. You might need to login.");
             if (err.response?.status === 401) setPage('login');
         }
@@ -1027,7 +1028,12 @@ const AdminPage = () => {
 
             {/* Listings Management */}
             <div className="glass-panel p-6 rounded-2xl border border-white/5">
-                <h2 className="text-xl font-bold mb-4 text-white">Manage Listings & Commissions</h2>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">Manage Listings & Commissions</h2>
+                    <div className="flex space-x-2">
+                        <button className="px-3 py-1.5 text-xs font-bold bg-primary/20 text-primary-light rounded-lg border border-primary/20">Active Listings</button>
+                    </div>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-white/10">
                         <thead className="bg-slate-800/50">
@@ -1041,7 +1047,7 @@ const AdminPage = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
-                            {listings.map(l => (
+                            {listings.filter(l => l.status === 'active').map(l => (
                                 <tr key={l.id}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                                         {l.title}
@@ -1066,6 +1072,67 @@ const AdminPage = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Sold History Table */}
+            <div className="glass-panel p-6 rounded-2xl border border-white/5 mt-8">
+                <h2 className="text-xl font-bold mb-4 text-white flex items-center">
+                    <span className="mr-2">🎉</span> Sold History (Completed Trades)
+                </h2>
+                <SoldItemsTable />
+            </div>
+        </div>
+    );
+};
+
+const SoldItemsTable = () => {
+    const [soldItems, setSoldItems] = useState([]);
+
+    useEffect(() => {
+        api.get('/admin/sold_items').then(res => setSoldItems(res.data)).catch(console.error);
+    }, []);
+
+    if (soldItems.length === 0) return <div className="text-slate-500 italic p-4">No completed trades yet.</div>;
+
+    return (
+        <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-white/10">
+                <thead className="bg-emerald-900/20">
+                    <tr>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-emerald-400 uppercase tracking-wider">Item</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">Seller Details</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">Buyer Details</th>
+                        <th className="px-6 py-3 text-left text-xs font-bold text-emerald-400 uppercase tracking-wider">Platform Profit</th>
+                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Sold On</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                    {soldItems.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-bold text-white">{item.title}</div>
+                                <div className="text-xs text-slate-500">#{item.id} • {item.category}</div>
+                                <div className="text-xs text-emerald-400 mt-1">Sold for: ₹{item.price}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-white">{item.seller_name}</div>
+                                <div className="text-xs text-slate-400">{item.seller_email}</div>
+                                <div className="text-xs text-slate-400 font-mono">{item.seller_phone}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-white">{item.buyer_name}</div>
+                                <div className="text-xs text-slate-400">{item.buyer_email}</div>
+                                <div className="text-xs text-slate-400 font-mono">{item.buyer_phone}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-emerald-400">
+                                +₹{(item.profit || 0).toFixed(0)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-slate-500">
+                                {new Date(item.sold_date).toLocaleDateString()}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     );
 };

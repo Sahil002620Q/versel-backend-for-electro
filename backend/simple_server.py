@@ -140,8 +140,8 @@ class MarketplaceHandler(http.server.SimpleHTTPRequestHandler):
                 conn.row_factory = sqlite3.Row
                 c = conn.cursor()
                 # Determine user role from token (optional) to show/hide seller_price?
-                # For now, public API hides seller_price unless we want it for client math, but safer to hide.
-                c.execute("SELECT id, seller_id, title, category, brand, model, condition, price, location, description, status, working_parts, photos, created_at FROM listings ORDER BY created_at DESC")
+                # Only show ACTIVE listings to the public
+                c.execute("SELECT id, seller_id, title, category, brand, model, condition, price, location, description, status, working_parts, photos, created_at FROM listings WHERE status='active' ORDER BY created_at DESC")
                 listings = [dict(row) for row in c.fetchall()]
                 for l in listings:
                     l['photos'] = json.loads(l['photos']) if l['photos'] else []
@@ -243,6 +243,42 @@ class MarketplaceHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(listings)
             return
 
+        # API: Admin - Get Sold Items
+        if path == "/admin/sold_items":
+            user, error = self.get_user_from_token()
+            if error:
+                self.send_error(401, error)
+                return
+            if user['role'] != 'admin':
+                self.send_error(403, "Admin access required")
+                return
+
+            conn = sqlite3.connect(DB_FILE, timeout=10)
+            try:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                query = '''
+                    SELECT 
+                        l.id, l.title, l.price, l.seller_price, l.category,
+                        br.updated_at as sold_date,
+                        b.name as buyer_name, b.email as buyer_email, b.phone as buyer_phone,
+                        s.name as seller_name, s.email as seller_email, s.phone as seller_phone
+                    FROM buy_requests br
+                    JOIN listings l ON br.listing_id = l.id
+                    JOIN users b ON br.buyer_id = b.id
+                    JOIN users s ON l.seller_id = s.id
+                    WHERE br.status = 'accepted'
+                    ORDER BY br.updated_at DESC
+                '''
+                c.execute(query)
+                sold_items = [dict(row) for row in c.fetchall()]
+                for item in sold_items:
+                     item['profit'] = (item['price'] or 0) - (item['seller_price'] or (item['price'] or 0))
+            finally:
+                conn.close()
+            self.send_json(sold_items)
+            return
+
         self.send_error(404)
 
     def do_POST(self):
@@ -331,11 +367,20 @@ class MarketplaceHandler(http.server.SimpleHTTPRequestHandler):
                 conn = sqlite3.connect(DB_FILE, timeout=10)
                 try:
                     c = conn.cursor()
+                    
+                    # CHECK LIMIT: Check if user already has a PENDING request for this listing
+                    c.execute("SELECT id FROM buy_requests WHERE listing_id=? AND buyer_id=? AND status='pending'", (body['listing_id'], user['id']))
+                    existing = c.fetchone()
+                    if existing:
+                         # Use 400 Bad Request
+                         self.send_error(400, "You already have a pending request for this item.")
+                         return
+
                     c.execute("SELECT seller_id FROM listings WHERE id=?", (body['listing_id'],))
                     listing = c.fetchone()
                     if not listing:
                         self.send_error(404, "Listing not found")
-                        return # inner return, finally executes
+                        return 
                     
                     c.execute("INSERT INTO buy_requests (listing_id, buyer_id, seller_id) VALUES (?, ?, ?)",
                               (body['listing_id'], user['id'], listing[0]))
@@ -369,7 +414,12 @@ class MarketplaceHandler(http.server.SimpleHTTPRequestHandler):
             conn = sqlite3.connect(DB_FILE, timeout=10)
             try:
                 c = conn.cursor()
-                c.execute("UPDATE buy_requests SET status=? WHERE id=?", (status, req_id))
+                if status == 'accepted':
+                    c.execute("UPDATE buy_requests SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (status, req_id))
+                    # Mark listing as SOLD
+                    c.execute("UPDATE listings SET status='sold' WHERE id=(SELECT listing_id FROM buy_requests WHERE id=?)", (req_id,))
+                else:
+                    c.execute("UPDATE buy_requests SET status=? WHERE id=?", (status, req_id))
                 conn.commit()
             finally:
                 conn.close()
