@@ -64,6 +64,61 @@ const AuthProvider = ({ children }) => {
 
 const useAuth = () => useContext(AuthContext);
 
+// --- Simple Custom Cursor & Ripple ---
+const CustomCursor = () => {
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [clicked, setClicked] = useState(false);
+
+    useEffect(() => {
+        const moveCursor = (e) => {
+            setPosition({ x: e.clientX, y: e.clientY });
+        };
+        const mouseDown = () => setClicked(true);
+        const mouseUp = () => setClicked(false);
+
+        // Ripple Effect
+        const createRipple = (e) => {
+            const ripple = document.createElement("div");
+            ripple.classList.add("ripple");
+            document.body.appendChild(ripple);
+            ripple.style.left = `${e.clientX}px`;
+            ripple.style.top = `${e.clientY}px`;
+            ripple.addEventListener("animationend", () => {
+                document.body.removeChild(ripple);
+            });
+        };
+
+        window.addEventListener('mousemove', moveCursor);
+        window.addEventListener('mousedown', mouseDown);
+        window.addEventListener('mouseup', mouseUp);
+        window.addEventListener('click', createRipple);
+
+        return () => {
+            window.removeEventListener('mousemove', moveCursor);
+            window.removeEventListener('mousedown', mouseDown);
+            window.removeEventListener('mouseup', mouseUp);
+            window.removeEventListener('click', createRipple);
+        };
+    }, []);
+
+    // Only render on non-touch devices to avoid annoyance? 
+    // For now, render always as requested.
+    return ReactDOM.createPortal(
+        <>
+            <div className="cursor-dot" style={{ left: `${position.x}px`, top: `${position.y}px` }}></div>
+            <div
+                className="cursor-outline"
+                style={{
+                    left: `${position.x}px`,
+                    top: `${position.y}px`,
+                    transform: `translate(-50%, -50%) scale(${clicked ? 0.8 : 1})`
+                }}
+            ></div>
+        </>,
+        document.getElementById('cursor-root') || document.body
+    );
+};
+
 // --- Components ---
 
 const Navbar = ({ setPage }) => {
@@ -112,7 +167,19 @@ const Navbar = ({ setPage }) => {
 };
 
 const ProductDetailsModal = ({ listing, onClose, onRequest }) => {
+    const { user } = useAuth(); // Need user to check ownership
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const [hasRequested, setHasRequested] = useState(false);
+
+    useEffect(() => {
+        if (user && listing) {
+            // Check if user has already sent a request for this listing
+            api.get('/requests/my-requests').then(res => {
+                const existing = res.data.find(r => r.listing_id === listing.id && r.status === 'pending');
+                if (existing) setHasRequested(true);
+            }).catch(console.error);
+        }
+    }, [user, listing]);
 
     if (!listing) return null;
 
@@ -209,12 +276,34 @@ const ProductDetailsModal = ({ listing, onClose, onRequest }) => {
 
                     <div className="pt-8 mt-4 border-t border-white/5">
                         {listing.status === 'active' ? (
-                            <button
-                                onClick={() => onRequest(listing.id)}
-                                className="w-full btn-primary text-white py-4 rounded-2xl font-bold text-lg shadow-xl shadow-primary/20 border border-white/20 hover:scale-[1.02] transition-transform"
-                            >
-                                Send Purchase Request
-                            </button>
+                            (() => {
+                                const isOwner = user && user.id === listing.seller_id;
+                                if (isOwner) {
+                                    return (
+                                        <button disabled className="w-full bg-slate-800 text-slate-500 py-4 rounded-2xl font-bold text-lg cursor-not-allowed border border-slate-700">
+                                            You Own This Item
+                                        </button>
+                                    );
+                                }
+                                if (hasRequested) {
+                                    return (
+                                        <button disabled className="w-full bg-primary/20 text-primary-light py-4 rounded-2xl font-bold text-lg cursor-not-allowed border border-primary/20">
+                                            Request Sent ✓
+                                        </button>
+                                    );
+                                }
+                                return (
+                                    <button
+                                        onClick={() => {
+                                            onRequest(listing.id);
+                                            setHasRequested(true); // Optimistic update
+                                        }}
+                                        className="w-full btn-primary text-white py-4 rounded-2xl font-bold text-lg shadow-xl shadow-primary/20 border border-white/20 hover:scale-[1.02] transition-transform"
+                                    >
+                                        Send Purchase Request
+                                    </button>
+                                );
+                            })()
                         ) : (
                             <button disabled className="w-full bg-slate-800 text-slate-500 py-4 rounded-2xl font-bold text-lg cursor-not-allowed border border-slate-700">
                                 Currently Unavailable
@@ -228,8 +317,13 @@ const ProductDetailsModal = ({ listing, onClose, onRequest }) => {
 };
 
 const ListingCard = ({ listing, onView }) => {
+    const isSold = listing.status === 'sold';
+
     return (
-        <div className="glass-panel-hover rounded-3xl overflow-hidden cursor-pointer group transition-all duration-500 flex flex-col h-full border border-slate-700/50 bg-slate-800/40 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10" onClick={() => onView(listing)}>
+        <div
+            className={`glass-panel-hover rounded-3xl overflow-hidden cursor-pointer group transition-all duration-500 flex flex-col h-full border border-slate-700/50 bg-slate-800/40 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10 ${isSold ? 'opacity-60 grayscale hover:opacity-75' : ''}`}
+            onClick={() => !isSold && onView(listing)}
+        >
             <div className="h-56 bg-dark-950/50 flex items-center justify-center relative overflow-hidden group-hover:bg-dark-900/80 transition-colors">
                 {listing.photos && listing.photos.length > 0 ? (
                     <img src={listing.photos[0]} alt={listing.title} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-90 group-hover:opacity-100" />
@@ -238,12 +332,22 @@ const ListingCard = ({ listing, onView }) => {
                         <span className="text-5xl mb-2 opacity-30 group-hover:opacity-50 transition-opacity">📷</span>
                     </div>
                 )}
-                <div className="absolute top-4 right-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-lg backdrop-blur-md border border-white/10 ${listing.status === 'active' ? 'bg-emerald-500/80 text-white' : 'bg-slate-500/80 text-white'}`}>
+
+                <div className="absolute top-4 right-4 z-10">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-lg backdrop-blur-md border border-white/10 ${isSold ? 'bg-red-500 text-white' : (listing.status === 'active' ? 'bg-emerald-500/80 text-white' : 'bg-slate-500/80 text-white')}`}>
                         {listing.status}
                     </span>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-dark-900 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity"></div>
+
+                {isSold && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-0">
+                        <span className="text-4xl font-extrabold text-white border-4 border-white px-4 py-2 transform -rotate-12 opacity-80 uppercase tracking-widest">
+                            SOLD
+                        </span>
+                    </div>
+                )}
+
+                {!isSold && <div className="absolute inset-0 bg-gradient-to-t from-dark-900 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity"></div>}
             </div>
 
             <div className="p-6 flex flex-col flex-1 relative">
@@ -271,59 +375,167 @@ const ListingCard = ({ listing, onView }) => {
                 </div>
 
                 <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between text-sm group/btn">
-                    <span className="text-slate-400">View Details</span>
-                    <div className="bg-white/5 p-2 rounded-full group-hover/btn:bg-primary group-hover/btn:text-white transition-all duration-300">
-                        <span className="block transform group-hover/btn:-rotate-45 transition-transform">→</span>
-                    </div>
+                    <span className="text-slate-400">{isSold ? 'Item Sold' : 'View Details'}</span>
+                    {!isSold && (
+                        <div className="bg-white/5 p-2 rounded-full group-hover/btn:bg-primary group-hover/btn:text-white transition-all duration-300">
+                            <span className="block transform group-hover/btn:-rotate-45 transition-transform">→</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
     );
 };
 
+const CheckoutModal = ({ request, onClose, onComplete }) => {
+    const [step, setStep] = useState(1);
+    const [formData, setFormData] = useState({
+        shipping_name: '', shipping_email: '', shipping_phone: '',
+        shipping_address: '', shipping_pincode: '', payment_method: ''
+    });
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (step === 1) {
+            setStep(2);
+            return;
+        }
+        // Final Submit
+        setLoading(true);
+        try {
+            await api.post('/orders/', {
+                request_id: request.id,
+                ...formData
+            });
+            alert("Order Placed Successfully!");
+            onComplete();
+            onClose();
+        } catch (err) {
+            alert(err.response?.data?.detail || "Checkout Failed");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+            <div className="glass-panel w-full max-w-lg rounded-3xl p-8 border border-white/10 shadow-2xl animate-scale-up relative">
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
+
+                <h2 className="text-2xl font-bold text-white mb-6">
+                    {step === 1 ? 'Shipping Details' : 'Payment Method'}
+                </h2>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    {step === 1 ? (
+                        <>
+                            <input type="text" required placeholder="Full Name" className="w-full rounded-xl px-4 py-3"
+                                value={formData.shipping_name} onChange={e => setFormData({ ...formData, shipping_name: e.target.value })} />
+                            <input type="email" required placeholder="Email" className="w-full rounded-xl px-4 py-3"
+                                value={formData.shipping_email} onChange={e => setFormData({ ...formData, shipping_email: e.target.value })} />
+                            <input type="tel" required placeholder="Phone" className="w-full rounded-xl px-4 py-3"
+                                value={formData.shipping_phone} onChange={e => setFormData({ ...formData, shipping_phone: e.target.value })} />
+                            <textarea required placeholder="Address" className="w-full rounded-xl px-4 py-3 h-24"
+                                value={formData.shipping_address} onChange={e => setFormData({ ...formData, shipping_address: e.target.value })} />
+                            <input type="text" required placeholder="Pincode" className="w-full rounded-xl px-4 py-3"
+                                value={formData.shipping_pincode} onChange={e => setFormData({ ...formData, shipping_pincode: e.target.value })} />
+                        </>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                            {['UPI', 'Card', 'NetBanking', 'Bitcoin', 'COD'].map(method => (
+                                <label key={method} className={`p-4 rounded-xl border cursor-pointer transition-all ${formData.payment_method === method ? 'bg-primary/20 border-primary text-white' : 'bg-slate-800/50 border-white/10 text-slate-400 hover:bg-slate-800'}`}>
+                                    <input type="radio" required name="payment" value={method} className="hidden"
+                                        onChange={e => setFormData({ ...formData, payment_method: e.target.value })} checked={formData.payment_method === method} />
+                                    <div className="font-bold">{method}</div>
+                                </label>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="pt-4 flex gap-3">
+                        {step === 2 && <button type="button" onClick={() => setStep(1)} className="flex-1 btn-secondary text-slate-300 py-3 rounded-xl font-bold">Back</button>}
+                        <button type="submit" disabled={loading} className="flex-1 btn-primary text-white py-3 rounded-xl font-bold">
+                            {loading ? 'Processing...' : (step === 1 ? 'Next Step' : 'Pay & Order')}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const OrderDetailsModal = ({ order, onClose }) => {
+    if (!order) return null;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+            <div className="glass-panel w-full max-w-lg rounded-3xl p-8 border border-white/10 shadow-2xl animate-scale-up relative">
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
+                <h2 className="text-2xl font-bold text-white mb-2">Order Details</h2>
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 mb-6">
+                    {order.payment_status?.toUpperCase() || 'PAID'}
+                </span>
+
+                <div className="space-y-6">
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Shipping Information</h3>
+                        <div className="bg-slate-800/50 p-4 rounded-xl border border-white/5 space-y-1">
+                            <p className="font-bold text-white">{order.shipping_name}</p>
+                            <p className="text-slate-300 text-sm">{order.shipping_address}, {order.shipping_pincode}</p>
+                            <p className="text-slate-400 text-xs mt-2">{order.shipping_email} • {order.shipping_phone}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Payment Method</h3>
+                        <div className="text-lg font-bold text-white">{order.payment_method}</div>
+                    </div>
+                </div>
+
+                <button onClick={onClose} className="w-full mt-8 btn-secondary text-white py-3 rounded-xl font-bold">Close</button>
+            </div>
+        </div>
+    );
+};
+
+
+
 // --- Pages ---
 
 const HomePage = ({ setPage }) => {
     const [listings, setListings] = useState([]);
-    const [filteredListings, setFilteredListings] = useState([]);
-    const [filters, setFilters] = useState({ category: '', condition: '' });
-    const [showFilters, setShowFilters] = useState(false);
-    const [selectedListing, setSelectedListing] = useState(null);
+    // Removed filteredListings as we will use server-side filtering
+    const [filters, setFilters] = useState({ category: '', condition: '', minPrice: '', maxPrice: '' });
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [sortBy, setSortBy] = useState('newest');
+    const [selectedListing, setSelectedListing] = useState(null);
 
+    // Debounce Search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchQuery);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    // Fetch on any filter change
     useEffect(() => {
         fetchListings();
-    }, [filters]);
-
-    useEffect(() => {
-        let result = [...listings];
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            result = result.filter(l =>
-                l.title.toLowerCase().includes(q) ||
-                l.brand.toLowerCase().includes(q) ||
-                l.model.toLowerCase().includes(q)
-            );
-        }
-        if (sortBy === 'price_low') {
-            result.sort((a, b) => a.price - b.price);
-        } else if (sortBy === 'price_high') {
-            result.sort((a, b) => b.price - a.price);
-        } else {
-            result.sort((a, b) => b.id - a.id);
-        }
-        setFilteredListings(result);
-    }, [listings, searchQuery, sortBy]);
+    }, [filters, debouncedSearch, sortBy]);
 
     const fetchListings = async () => {
         try {
             const params = {};
+            if (debouncedSearch) params.q = debouncedSearch;
             if (filters.category) params.category = filters.category;
             if (filters.condition) params.condition = filters.condition;
+            if (filters.minPrice) params.min_price = filters.minPrice;
+            if (filters.maxPrice) params.max_price = filters.maxPrice;
+            params.sort = sortBy;
+
             const res = await api.get('/listings/', { params });
             setListings(res.data);
-            setFilteredListings(res.data);
         } catch (err) {
             console.error("Failed to fetch listings", err);
         }
@@ -335,7 +547,6 @@ const HomePage = ({ setPage }) => {
             alert("Buy request sent successfully! Check your dashboard.");
             setSelectedListing(null);
         } catch (err) {
-            // Show the backend error message (e.g. "You already have a pending request...")
             alert(err.response?.data?.detail || "Failed to send request. You might need to login.");
             if (err.response?.status === 401) setPage('login');
         }
@@ -359,7 +570,7 @@ const HomePage = ({ setPage }) => {
                         <span className="pl-4 text-2xl">🔍</span>
                         <input
                             type="text"
-                            placeholder="Search by device, brand, or model..."
+                            placeholder="Server-side search by device, brand, or model..."
                             className="bg-transparent border-none text-white text-lg w-full px-4 py-3 placeholder-slate-500 focus:ring-0"
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
@@ -385,7 +596,30 @@ const HomePage = ({ setPage }) => {
                     <div className="glass-panel p-6 rounded-2xl sticky top-28">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="font-bold text-white text-lg">Filters</h3>
-                            <button onClick={() => setFilters({ category: '', condition: '' })} className="text-xs text-primary-light font-bold hover:text-white transition-colors uppercase tracking-wide">Reset</button>
+                            <button onClick={() => {
+                                setFilters({ category: '', condition: '', minPrice: '', maxPrice: '' });
+                                setSearchQuery('');
+                            }} className="text-xs text-primary-light font-bold hover:text-white transition-colors uppercase tracking-wide">Reset</button>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Price Range (₹)</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="number"
+                                    placeholder="Min"
+                                    className="w-full rounded-xl px-3 py-2 text-sm bg-slate-800/50 border border-white/10 focus:ring-2 focus:ring-primary/50"
+                                    value={filters.minPrice}
+                                    onChange={e => setFilters({ ...filters, minPrice: e.target.value })}
+                                />
+                                <input
+                                    type="number"
+                                    placeholder="Max"
+                                    className="w-full rounded-xl px-3 py-2 text-sm bg-slate-800/50 border border-white/10 focus:ring-2 focus:ring-primary/50"
+                                    value={filters.maxPrice}
+                                    onChange={e => setFilters({ ...filters, maxPrice: e.target.value })}
+                                />
+                            </div>
                         </div>
 
                         <div className="mb-8">
@@ -428,7 +662,7 @@ const HomePage = ({ setPage }) => {
                 {/* Listings Grid */}
                 <div className="flex-1 animate-slide-up" style={{ animationDelay: '0.1s' }}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredListings.map(listing => (
+                        {listings.map(listing => (
                             <ListingCard
                                 key={listing.id}
                                 listing={listing}
@@ -436,14 +670,14 @@ const HomePage = ({ setPage }) => {
                             />
                         ))}
                     </div>
-                    {filteredListings.length === 0 && (
+                    {listings.length === 0 && (
                         <div className="glass-panel text-center py-24 rounded-3xl border border-dashed border-slate-700 mt-4">
                             <div className="bg-slate-800/50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
                                 <span className="text-5xl">🔍</span>
                             </div>
                             <h3 className="text-2xl font-bold text-white mb-2">No items found</h3>
                             <p className="text-slate-400 font-medium">Try adjusting your filters or search query.</p>
-                            <button onClick={() => { setFilters({ category: '', condition: '' }); setSearchQuery('') }} className="mt-6 text-primary-light font-bold hover:text-white transition-colors">Clear All Filters</button>
+                            <button onClick={() => { setFilters({ category: '', condition: '', minPrice: '', maxPrice: '' }); setSearchQuery('') }} className="mt-6 text-primary-light font-bold hover:text-white transition-colors">Clear All Filters</button>
                         </div>
                     )}
                 </div>
@@ -768,6 +1002,9 @@ const DashboardPage = () => {
     const [myListings, setMyListings] = useState([]);
     const [sentRequests, setSentRequests] = useState([]);
     const [incomingRequests, setIncomingRequests] = useState([]);
+    const [myOrders, setMyOrders] = useState([]);
+    const [checkoutRequest, setCheckoutRequest] = useState(null);
+    const [selectedOrder, setSelectedOrder] = useState(null);
 
     useEffect(() => {
         if (user) loadDashboardData();
@@ -781,6 +1018,13 @@ const DashboardPage = () => {
             setIncomingRequests(reqInc.data);
             const listRes = await api.get('/listings/?limit=100');
             setMyListings(listRes.data.filter(l => l.seller_id === user.id));
+
+            // Allow fetch orders if endpoint exists (ignoring error if not yet ready)
+            try {
+                const ordersRes = await api.get('/orders/my-orders');
+                setMyOrders(ordersRes.data);
+            } catch (e) { }
+
         } catch (err) {
             console.error(err);
         }
@@ -796,122 +1040,125 @@ const DashboardPage = () => {
         }
     };
 
+    // Helper to find order for a request
+    const getOrderForRequest = (reqId) => myOrders.find(o => o.request_id === reqId);
+
     return (
         <div className="max-w-7xl mx-auto px-4 py-12">
             <h1 className="text-3xl font-bold mb-8 text-white">Dashboard</h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-                {/* Incoming Requests */}
-                <div className="glass-panel p-6 rounded-3xl border border-white/5">
-                    <h2 className="text-xl font-bold mb-6 text-white flex items-center">
-                        <span className="mr-3 bg-slate-800 p-2 rounded-lg">📥</span> Incoming Buy Requests
-                    </h2>
-                    {incomingRequests.length === 0 ? (
-                        <p className="text-slate-500 italic">No incoming requests yet.</p>
-                    ) : (
-                        <div className="space-y-4">
-                            {incomingRequests.map(req => (
-                                <div key={req.id} className="bg-slate-800/50 p-6 rounded-2xl border border-white/5 shadow-sm">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                                                {req.buyer_name ? req.buyer_name[0].toUpperCase() : 'B'}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-white">Buyer</p>
-                                                <p className="text-xs text-slate-400">{req.buyer_location}</p>
-                                            </div>
-                                        </div>
-                                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${req.status === 'pending' ? 'bg-amber-500/20 text-amber-500' : req.status === 'accepted' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
-                                            {req.status}
-                                        </span>
-                                    </div>
+            {/* Buyer Section: My Requests */}
+            <div className="mb-12">
+                <h2 className="text-xl font-bold mb-4 text-emerald-400">My Purchase Requests</h2>
+                <div className="space-y-4">
+                    {sentRequests.map(req => {
+                        const order = getOrderForRequest(req.id);
+                        const isCompleted = req.status === 'completed' || order;
 
-                                    <div className="bg-slate-900/50 p-4 rounded-xl text-sm text-slate-300 mb-4 border border-white/5">
-                                        <p>Wants to buy <span className="font-semibold text-primary-light">Listing #{req.listing_id}</span></p>
-                                        <p className="text-xs text-slate-500 mt-1">{new Date(req.created_at).toLocaleDateString()}</p>
-                                    </div>
-
-                                    <div className="bg-slate-900/40 p-3 rounded-lg text-sm text-slate-400 mb-4 border border-white/5 text-center">
-                                        ℹ️ Contact details masked until Admin approval.
-                                    </div>
-
-                                    <div className="mt-4 flex gap-2">
-                                        {req.status === 'pending' && (
-                                            <>
-                                                <button onClick={() => handleUpdateStatus(req.id, 'accept')} className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold text-sm hover:bg-emerald-600">Accept Trade</button>
-                                                <button onClick={() => handleUpdateStatus(req.id, 'reject')} className="flex-1 bg-red-500/20 text-red-500 py-2 rounded-xl font-bold text-sm hover:bg-red-500/30">Reject</button>
-                                            </>
-                                        )}
-                                        {req.status === 'accepted' && (
-                                            <div className="flex-1 bg-emerald-500/10 text-emerald-400 py-2 rounded-xl font-bold text-sm text-center border border-emerald-500/20">
-                                                Accepted - System Processing
-                                            </div>
-                                        )}
-                                    </div>
+                        return (
+                            <div key={req.id} className="glass-panel p-6 rounded-2xl flex items-center justify-between border border-white/5">
+                                <div>
+                                    <div className="text-xs text-slate-400 mb-1">Request #{req.id}</div>
+                                    <div className="font-bold text-lg text-white">Listing ID: {req.listing_id}</div>
+                                    <div className="text-sm text-slate-500">Status: <span className={`uppercase font-bold ${req.status === 'accepted' ? 'text-emerald-400' : (req.status === 'rejected' ? 'text-red-400' : 'text-yellow-400')}`}>{isCompleted ? 'PURCHASED' : req.status}</span></div>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
 
-                {/* Sent Requests */}
-                <div className="glass-panel p-6 rounded-3xl border border-white/5">
-                    <h2 className="text-xl font-bold mb-6 text-white flex items-center">
-                        <span className="mr-3 bg-slate-800 p-2 rounded-lg">📤</span> Sent Requests
-                    </h2>
-                    {sentRequests.length === 0 ? (
-                        <p className="text-slate-500 italic">No sent requests.</p>
-                    ) : (
-                        <div className="space-y-4">
-                            {sentRequests.map(req => (
-                                <div key={req.id} className="bg-slate-800/50 p-4 rounded-xl border border-white/5 flex flex-col group hover:bg-slate-800 transition-colors">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="font-bold text-white group-hover:text-primary-light transition-colors">Listing #{req.listing_id}</span>
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${req.status === 'pending' ? 'bg-amber-500/10 text-amber-500' : req.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                                            {req.status}
-                                        </span>
+                                {req.status === 'accepted' && !isCompleted && (
+                                    <button onClick={() => setCheckoutRequest(req)} className="btn-primary text-white px-6 py-2 rounded-xl font-bold shadow-lg animate-pulse">
+                                        Proceed to Buy
+                                    </button>
+                                )}
+
+                                {isCompleted && (
+                                    <div className="bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-xl font-bold border border-emerald-500/20">
+                                        Order Placed ✓
                                     </div>
-                                    <p className="text-xs text-slate-500">{new Date(req.created_at).toLocaleDateString()}</p>
-                                    {req.status === 'accepted' && (
-                                        <div className="mt-2 text-xs text-emerald-400 bg-emerald-500/5 p-2 rounded border border-emerald-500/10">
-                                            Offer Accepted! Admin will contact you shortly to finalize payment and shipping.
+                                )}
+                            </div>
+                        )
+                    })}
+                    {sentRequests.length === 0 && <div className="text-slate-500">No requests sent.</div>}
+                </div>
+            </div>
+
+            {/* Seller Section: Incoming Requests */}
+            {user.role !== 'buyer' && (
+                <div className="mb-12">
+                    <h2 className="text-xl font-bold mb-4 text-secondary">Incoming Requests</h2>
+                    <div className="space-y-4">
+                        {incomingRequests.map(req => {
+                            const order = getOrderForRequest(req.id); // Seller needs to fetch orders too, assuming endpoint returns correct data
+
+                            return (
+                                <div key={req.id} className="glass-panel p-6 rounded-2xl border border-white/5">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <div className="font-bold text-lg text-white">Item ID: {req.listing_id}</div>
+                                            <div className="text-sm text-slate-400">Buyer: {req.buyer_name} ({req.buyer_location})</div>
+                                        </div>
+                                        <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${req.status === 'accepted' || req.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                            {req.status}
+                                        </div>
+                                    </div>
+
+                                    {req.status === 'pending' ? (
+                                        <div className="flex gap-3">
+                                            <button onClick={() => handleUpdateStatus(req.id, 'accept')} className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 transition-colors">Accept Deal</button>
+                                            <button onClick={() => handleUpdateStatus(req.id, 'reject')} className="flex-1 bg-slate-700 text-white py-2 rounded-xl font-bold hover:bg-slate-600 transition-colors">Reject</button>
+                                        </div>
+                                    ) : (
+                                        <div className="mt-2 text-sm text-slate-500">
+                                            {req.status === 'rejected' ? 'You rejected this request.' : 'You accepted this deal. Waiting for payment...'}
                                         </div>
                                     )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
 
-            {/* My Listings */}
-            <div className="glass-panel p-8 rounded-3xl border border-white/5">
-                <h2 className="text-2xl font-bold mb-6 text-white">📦 My Active Listings</h2>
-                {myListings.length === 0 ? (
-                    <div className="text-center py-10">
-                        <p className="text-slate-500 mb-4">You haven't posted any items yet.</p>
-                        <button className="text-primary-light font-bold hover:underline">Create your first listing</button>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                        {myListings.map(l => (
-                            <div key={l.id} className="bg-slate-900/50 p-4 rounded-2xl border border-white/5 relative group hover:border-primary/50 transition-colors">
-                                <h3 className="font-bold text-white truncate mb-1">{l.title}</h3>
-                                <div className="flex justify-between items-end mt-2">
-                                    <div className="text-sm text-slate-400">
-                                        Listed: <span className="text-white">₹{l.price}</span>
-                                    </div>
-                                    <div className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-md">
-                                        You get: ₹{l.seller_price || '?'}
-                                    </div>
+                                    {/* Show Order Details if available */}
+                                    {order && (
+                                        <button onClick={() => setSelectedOrder(order)} className="mt-4 w-full border border-emerald-500/30 text-emerald-400 py-2 rounded-xl font-bold hover:bg-emerald-500/10 transition-colors">
+                                            View Order Details
+                                        </button>
+                                    )}
                                 </div>
-                                <span className={`absolute top-4 right-4 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${l.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-600 text-slate-300'}`}>{l.status}</span>
+                            )
+                        })}
+                        {incomingRequests.length === 0 && <div className="text-slate-500">No incoming requests.</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* Seller Section: My Listings */}
+            {user.role !== 'buyer' && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 text-white">My Active Listings</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {myListings.map(listing => (
+                            <div key={listing.id} className="glass-panel p-4 rounded-2xl border border-white/5 opacity-80 hover:opacity-100">
+                                <div className="flex justify-between mb-2">
+                                    <span className="font-bold text-white truncate">{listing.title}</span>
+                                    <span className="text-emerald-400 font-bold">You get: ₹{listing.seller_price}</span>
+                                </div>
+                                <div className="text-xs text-slate-500 mb-2">{listing.status.toUpperCase()}</div>
                             </div>
                         ))}
+                        {myListings.length === 0 && <div className="text-slate-500">No active listings.</div>}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
+
+            {checkoutRequest && (
+                <CheckoutModal
+                    request={checkoutRequest}
+                    onClose={() => setCheckoutRequest(null)}
+                    onComplete={loadDashboardData}
+                />
+            )}
+
+            {selectedOrder && (
+                <OrderDetailsModal
+                    order={selectedOrder}
+                    onClose={() => setSelectedOrder(null)}
+                />
+            )}
         </div>
     );
 };
@@ -1145,6 +1392,7 @@ const App = () => {
     return (
         <AuthProvider>
             <div className="min-h-screen text-slate-100 font-sans selection:bg-primary/30 selection:text-white">
+                <CustomCursor />
                 <Navbar setPage={setPage} />
                 <main className="pb-20">
                     {page === 'home' && <HomePage setPage={setPage} />}
